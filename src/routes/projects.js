@@ -8,6 +8,12 @@ const {
   acceptMember,
   rejectApplicant
 } = require('../controllers/projectController');
+const {
+  getProjectTasks,
+  generateProjectTasks,
+  distributeProjectTasks,
+  updateTaskStatus
+} = require('../controllers/taskController');
 const authMiddleware = require('../middleware/authMiddleware');
 
 const router = express.Router();
@@ -24,5 +30,11 @@ router.post('/:id/apply', applyToJoin);
 router.get('/:id/applicants', getApplicants);
 router.post('/:id/accept/:userId', acceptMember);
 router.post('/:id/reject/:userId', rejectApplicant);
+
+// Tasks routes
+router.get('/:id/tasks', getProjectTasks);
+router.post('/:id/tasks/generate', generateProjectTasks);
+router.post('/:id/tasks/distribute', distributeProjectTasks);
+router.put('/:id/tasks/:taskId', updateTaskStatus);
 
 module.exports = router;

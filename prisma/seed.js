@@ -177,8 +177,8 @@ async function main() {
 
   await prisma.projectRole.createMany({
     data: [
-      { projectId: campusProject.id, roleTitle: 'Lead UI/UX Designer', skillsRequired: ['Figma', 'UI Design'], levelRequired: 'intermediate', filled: false },
-      { projectId: campusProject.id, roleTitle: 'PWA Frontend Specialist', skillsRequired: ['React', 'JavaScript'], levelRequired: 'intermediate', filled: false },
+      { projectId: campusProject.id, roleTitle: 'Lead UI/UX Designer', skillsRequired: ['Figma', 'UI Design'], levelRequired: 'intermediate', filled: true, filledBy: meera.id },
+      { projectId: campusProject.id, roleTitle: 'PWA Frontend Specialist', skillsRequired: ['React', 'JavaScript'], levelRequired: 'intermediate', filled: true, filledBy: aarav.id },
       { projectId: campusProject.id, roleTitle: 'Backend API Engineer', skillsRequired: ['Express', 'Node.js'], levelRequired: 'intermediate', filled: false }
     ]
   });
@@ -206,46 +206,23 @@ async function main() {
     ]
   });
 
-  // Project 3 - Aarav's High Perf Code Sandbox
-  const sandboxProject = await prisma.project.create({
-    data: {
-      ownerId: aarav.id,
-      title: 'Real-time Monospace Code Editor',
-      description: 'An interactive browser-based code playground providing real-time multi-peer document sync via WebSocket buffers. Includes syntax compilers for Python and JavaScript.',
-      domainTags: ['Web Dev', 'Research'],
-      complexity: 'advanced',
-      teamSize: 3,
-      deadline: new Date('2026-08-01'),
-      status: 'forming',
-      collegeOnly: false,
-      isOpenContribution: false
-    }
-  });
-
-  await prisma.projectRole.createMany({
-    data: [
-      { projectId: sandboxProject.id, roleTitle: 'Socket Backend Systems Developer', skillsRequired: ['Node.js', 'Express'], levelRequired: 'advanced', filled: false },
-      { projectId: sandboxProject.id, roleTitle: 'Monaco Editor Customizer', skillsRequired: ['React', 'JavaScript'], levelRequired: 'intermediate', filled: false }
-    ]
-  });
-
-  // 5. Register active owner memberships
-  console.log('Setting up owner memberships...');
+  // 5. Register active owner and team memberships (Satya, Meera, Aarav are active builders!)
+  console.log('Setting up active team memberships...');
   await prisma.projectMember.createMany({
     data: [
       { projectId: campusProject.id, userId: satya.id, role: 'Project Owner', status: 'active' },
-      { projectId: cropsProject.id, userId: priya.id, role: 'Project Owner', status: 'active' },
-      { projectId: sandboxProject.id, userId: aarav.id, role: 'Project Owner', status: 'active' }
+      { projectId: campusProject.id, userId: meera.id, role: 'Lead UI/UX Designer', status: 'active' },
+      { projectId: campusProject.id, userId: aarav.id, role: 'PWA Frontend Specialist', status: 'active' },
+      
+      { projectId: cropsProject.id, userId: priya.id, role: 'Project Owner', status: 'active' }
     ]
   });
 
-  // 6. Simulate some pending applications
+  // 6. Simulate some pending applications (Kabir applies to Satya's project as Backend)
   console.log('Simulating mock applications...');
   await prisma.projectMember.createMany({
     data: [
-      // Meera and Aarav apply for Satya's Smart Campus Navigation
-      { projectId: campusProject.id, userId: meera.id, role: 'Lead UI/UX Designer', status: 'pending' },
-      { projectId: campusProject.id, userId: aarav.id, role: 'PWA Frontend Specialist', status: 'pending' }
+      { projectId: campusProject.id, userId: kabir.id, role: 'Backend API Engineer', status: 'pending' }
     ]
   });
 
@@ -256,15 +233,8 @@ async function main() {
         userId: satya.id,
         type: 'project_application',
         title: 'New Application Received',
-        message: 'Meera Nair has submitted an application for the Lead UI/UX Designer role.',
-        link: `/projects/${campusProject.id}/manage`
-      },
-      {
-        userId: satya.id,
-        type: 'project_application',
-        title: 'New Application Received',
-        message: 'Aarav Sharma has submitted an application for the PWA Frontend Specialist role.',
-        link: `/projects/${campusProject.id}/manage`
+        message: 'Kabir Mehta has submitted an application for the Backend API Engineer role.',
+        link: `/projects/${campusProject.id}`
       }
     ]
   });
@@ -273,8 +243,8 @@ async function main() {
   console.log('StudentForge Seeding Completed Successfully!');
   console.log('Created Users   : 6 (Indian names, password: "password123")');
   console.log('Created Projects: 3 (Campus Nav, ML Crops, Code Sandbox)');
-  console.log('Created Roles   : 7 vacancies defined');
-  console.log('Pending Applications: 2 simulated triggers');
+  console.log('Active Members  : Satya, Meera, Aarav loaded as active builders');
+  console.log('Pending Applications: Kabir Mehta is a pending applicant');
   console.log('----------------------------------------------------');
 }
 
