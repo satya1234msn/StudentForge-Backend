@@ -1,0 +1,215 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum WorkStyle {
+  async
+  sync
+  both
+}
+
+enum SkillCategory {
+  frontend
+  backend
+  design
+  content
+  research
+  testing
+  data
+  other
+}
+
+enum SkillLevel {
+  beginner
+  intermediate
+  advanced
+}
+
+enum SkillSource {
+  manual
+  github
+  portfolio
+  endorsed
+}
+
+enum ProjectStatus {
+  forming
+  active
+  completed
+  archived
+}
+
+enum ProjectComplexity {
+  beginner
+  intermediate
+  advanced
+}
+
+enum TaskCategory {
+  design
+  frontend
+  backend
+  content
+  testing
+  research
+  other
+}
+
+enum TaskAssignedBy {
+  ai
+  owner
+  member
+}
+
+enum TaskStatus {
+  unassigned
+  todo
+  in_progress
+  review
+  done
+}
+
+enum TaskPriority {
+  low
+  medium
+  high
+  critical
+}
+
+model User {
+  id                String    @id @default(uuid()) @db.Uuid
+  name              String
+  email             String    @unique
+  passwordHash      String
+  college           String?
+  course            String?
+  year              Int?
+  bio               String?   @db.Text
+  avatarUrl         String?
+  githubUrl         String?
+  behanceUrl        String?
+  linkedinUrl       String?
+  portfolioUrl      String?
+  availabilityHours Int       @default(10)
+  workStyle         WorkStyle @default(both)
+  reliabilityScore  Float     @default(5.0)
+  projectsCompleted Int       @default(0)
+  createdAt         DateTime  @default(now())
+
+  skills            Skill[]
+  ownedProjects     Project[]        @relation("ProjectOwner")
+  memberships       ProjectMember[]
+  assignedTasks     Task[]           @relation("TaskAssignee")
+  notifications     Notification[]
+  snapshots         MemberSkillsSnapshot[]
+}
+
+model Skill {
+  id            String        @id @default(uuid()) @db.Uuid
+  userId        String        @db.Uuid
+  skillName     String
+  category      SkillCategory
+  level         SkillLevel
+  source        SkillSource   @default(manual)
+  endorsedCount Int           @default(0)
+  createdAt     DateTime      @default(now())
+
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Project {
+  id                 String            @id @default(uuid()) @db.Uuid
+  ownerId            String            @db.Uuid
+  title              String
+  description        String            @db.Text
+  domainTags         String[]
+  complexity         ProjectComplexity @default(intermediate)
+  teamSize           Int
+  deadline           DateTime
+  status             ProjectStatus     @default(forming)
+  collegeOnly        Boolean           @default(false)
+  collegeName        String?
+  isOpenContribution Boolean           @default(false)
+  createdAt          DateTime          @default(now())
+
+  owner              User              @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  roles              ProjectRole[]
+  members            ProjectMember[]
+  tasks              Task[]
+  snapshots          MemberSkillsSnapshot[]
+}
+
+model ProjectRole {
+  id             String            @id @default(uuid()) @db.Uuid
+  projectId      String            @db.Uuid
+  roleTitle      String
+  skillsRequired String[]
+  levelRequired  SkillLevel        @default(intermediate)
+  filled         Boolean           @default(false)
+  filledBy       String?           @db.Uuid
+
+  project        Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model ProjectMember {
+  id                  String         @id @default(uuid()) @db.Uuid
+  projectId           String         @db.Uuid
+  userId              String         @db.Uuid
+  role                String
+  joinedAt            DateTime       @default(now())
+  status              String         @default("active") // e.g. "active", "inactive", "removed"
+  contributionSummary String?        @db.Text
+
+  project             Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user                User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model MemberSkillsSnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  projectId      String   @db.Uuid
+  userId         String   @db.Uuid
+  skillsData     Json     // holds full snapshot of skills + levels
+  portfolioLinks Json?    // links provided at join time
+  createdAt      DateTime @default(now())
+
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Task {
+  id             String          @id @default(uuid()) @db.Uuid
+  projectId      String          @db.Uuid
+  title          String
+  description    String          @db.Text
+  category       TaskCategory
+  assignedTo     String?         @db.Uuid
+  assignedBy     TaskAssignedBy  @default(owner)
+  status         TaskStatus      @default(unassigned)
+  isLearningTask Boolean         @default(false)
+  priority       TaskPriority    @default(medium)
+  dueDate        DateTime?
+  estimatedHours Int             @default(0)
+  completedAt    DateTime?
+  createdAt      DateTime        @default(now())
+
+  project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignee       User?           @relation("TaskAssignee", fields: [assignedTo], references: [id], onDelete: SetNull)
+}
+
+model Notification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  type      String   // e.g. 'task_assigned', 'swap_request', etc.
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  link      String?  // deep link URL
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
