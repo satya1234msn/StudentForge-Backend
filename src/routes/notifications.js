@@ -20,4 +20,39 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+// DELETE /api/notifications/:id
+router.delete('/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    
+    const notif = await prisma.notification.findFirst({
+      where: { id, userId: req.userId }
+    });
+
+    if (!notif) {
+      return res.status(404).json({ error: 'Notification not found.' });
+    }
+
+    await prisma.notification.delete({
+      where: { id }
+    });
+
+    return res.json({ success: true, message: 'Notification cleared successfully.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /api/notifications (Clear all)
+router.delete('/', async (req, res, next) => {
+  try {
+    await prisma.notification.deleteMany({
+      where: { userId: req.userId }
+    });
+    return res.json({ success: true, message: 'All notifications cleared.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;
