@@ -199,6 +199,40 @@ const applyToJoin = async (req, res, next) => {
       return res.status(400).json({ error: 'You are the project owner.' });
     }
 
+    // Verify skill requirements matching constraint
+    const projectRole = await prisma.projectRole.findFirst({
+      where: {
+        projectId,
+        roleTitle: { equals: roleTitle, mode: 'insensitive' }
+      }
+    });
+
+    if (projectRole && projectRole.skillsRequired && projectRole.skillsRequired.length > 0) {
+      const userObj = await prisma.user.findUnique({
+        where: { id: userId },
+        include: { skills: true }
+      });
+
+      const requiredSkills = projectRole.skillsRequired.map(s => s.toLowerCase());
+      
+      // A. Check matches in profile skills
+      const hasMatchingProfileSkill = userObj.skills?.some(s => 
+        requiredSkills.includes(s.skillName.toLowerCase())
+      );
+
+      // B. Check matches in bio text
+      const userBioLower = (userObj.bio || '').toLowerCase();
+      const hasMatchingBioSkill = requiredSkills.some(s => 
+        userBioLower.includes(s)
+      );
+
+      if (!hasMatchingProfileSkill && !hasMatchingBioSkill) {
+        return res.status(400).json({
+          error: `You do not match the required skills for the "${roleTitle}" role. Required skills: ${projectRole.skillsRequired.join(', ')}. Please update your profile skills or list them inside your bio to apply.`
+        });
+      }
+    }
+
     // Check if already a member or applicant
     const existingMember = await prisma.projectMember.findFirst({
       where: {
@@ -208,11 +242,52 @@ const applyToJoin = async (req, res, next) => {
     });
 
     if (existingMember) {
-      return res.status(400).json({
-        error: existingMember.status === 'pending'
-          ? 'You have already applied to this project.'
-          : 'You are already a member of this project.'
-      });
+      if (existingMember.status === 'pending') {
+        return res.status(400).json({ error: 'You have already applied to this project.' });
+      }
+      if (existingMember.status === 'active') {
+        return res.status(400).json({ error: 'You are already a member of this project.' });
+      }
+      // If status is rejected, reset it back to pending with the new role!
+      if (existingMember.status === 'rejected') {
+        await prisma.projectMember.update({
+          where: { id: existingMember.id },
+          data: {
+            role: roleTitle,
+            status: 'pending',
+            contributionSummary: null, // reset rejection reason
+            joinedAt: new Date()
+          }
+        });
+        
+        // Notify project owner
+        const applyingUser = await prisma.user.findUnique({ where: { id: userId } });
+        await prisma.notification.create({
+          data: {
+            userId: project.ownerId,
+            type: 'project_application',
+            title: 'New Project Application',
+            message: `${applyingUser.name} re-applied for the ${roleTitle} role in your project "${project.title}".`,
+            link: `/projects/${projectId}/manage`
+          }
+        });
+
+        // Emit live socket event if socket connected
+        const io = req.app.get('io');
+        const connectedUsers = req.app.get('connectedUsers');
+        const ownerSocketId = connectedUsers.get(project.ownerId);
+        if (io && ownerSocketId) {
+          io.to(ownerSocketId).emit('notification', {
+            title: 'New Project Application',
+            message: `${applyingUser.name} applied for ${roleTitle}`
+          });
+        }
+        
+        return res.status(200).json({
+          message: 'Application re-submitted successfully!',
+          applicant: existingMember
+        });
+      }
     }
 
     // Create the pending applicant
@@ -384,11 +459,12 @@ const acceptMember = async (req, res, next) => {
   }
 };
 
-// Reject an applicant (Project Owner only)
+// Reject an applicant (Project Owner only, keeps the entry for tracking)
 const rejectApplicant = async (req, res, next) => {
   try {
     const ownerId = req.userId;
     const { id: projectId, userId } = req.params;
+    const { reason } = req.body;
 
     const project = await prisma.project.findUnique({
       where: { id: projectId }
@@ -414,23 +490,63 @@ const rejectApplicant = async (req, res, next) => {
       return res.status(404).json({ error: 'Pending application not found.' });
     }
 
-    // Delete application
-    await prisma.projectMember.delete({
-      where: { id: application.id }
+    // Soft reject by updating status and reason explanation
+    await prisma.projectMember.update({
+      where: { id: application.id },
+      data: {
+        status: 'rejected',
+        contributionSummary: reason || 'Not selected for this role.'
+      }
     });
 
-    // Notify applicant
+    // Notify applicant with their custom reason
     await prisma.notification.create({
       data: {
         userId,
         type: 'project_rejected',
         title: 'Application Update',
-        message: `Your application for "${application.role}" in project "${project.title}" was not selected.`,
+        message: `Your application for "${application.role}" in project "${project.title}" was not selected. Reason: ${reason || 'Not selected for this role.'}`,
         link: `/discover`
       }
     });
 
+    // Emit live socket alert
+    const io = req.app.get('io');
+    const connectedUsers = req.app.get('connectedUsers');
+    const applicantSocketId = connectedUsers.get(userId);
+    if (io && applicantSocketId) {
+      io.to(applicantSocketId).emit('notification', {
+        title: 'Application Update',
+        message: `Your request was not accepted. Reason: ${reason || 'Not selected.'}`
+      });
+    }
+
     return res.json({ message: 'Applicant rejected successfully.' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Fetch applications made by authenticated user
+const getUserApplications = async (req, res, next) => {
+  try {
+    const userId = req.userId;
+
+    const applications = await prisma.projectMember.findMany({
+      where: { userId },
+      include: {
+        project: {
+          include: {
+            owner: {
+              select: { name: true, avatarUrl: true }
+            }
+          }
+        }
+      },
+      orderBy: { joinedAt: 'desc' }
+    });
+
+    return res.json(applications);
   } catch (error) {
     next(error);
   }
@@ -443,5 +559,6 @@ module.exports = {
   applyToJoin,
   getApplicants,
   acceptMember,
-  rejectApplicant
+  rejectApplicant,
+  getUserApplications
 };

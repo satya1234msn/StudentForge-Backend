@@ -177,6 +177,46 @@ const matchTasksToMembers = (tasks, members) => {
     }
   });
 
+  // 5. Single Member Concentration Re-balancer Verification Check
+  // "the ai has to divide roles to all if it is divide roles to only one member it has to stop the process and redo it"
+  const activeAssignees = Object.keys(assignments).filter(id => assignments[id].length > 0);
+  if (members.length > 1 && activeAssignees.length <= 1) {
+    console.log(`[MATCHING ENGINE WARNING] Allocation concentrated tasks to only one member: ${activeAssignees[0]}. Re-balancing evenly across all members.`);
+    
+    // Clear all assignments and loads to run our even round-robin fallback distribution
+    members.forEach(member => {
+      assignments[member.id] = [];
+      memberLoads[member.id] = 0;
+    });
+
+    // Distribute tasks evenly (round-robin) so everyone is fully involved
+    tasks.forEach((task, index) => {
+      const targetMember = members[index % members.length];
+      assignments[targetMember.id].push(task);
+      memberLoads[targetMember.id] += (task.estimatedHours || 0);
+    });
+
+    // Re-evaluate learning tags for the new balanced assignments
+    members.forEach(member => {
+      const memberTasks = assignments[member.id];
+      if (memberTasks.length > 0) {
+        // Reset learning tags
+        memberTasks.forEach(t => t.isLearningTask = false);
+        
+        const learningTask = memberTasks.find(task => {
+          const matchingSkill = member.skills?.find(s => s.skillName.toLowerCase() === task.category.toLowerCase());
+          return !matchingSkill || matchingSkill.level === 'beginner';
+        });
+
+        if (learningTask) {
+          learningTask.isLearningTask = true;
+        } else {
+          memberTasks[0].isLearningTask = true;
+        }
+      }
+    });
+  }
+
   return {
     assignments,
     memberLoads,

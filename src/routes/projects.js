@@ -6,7 +6,8 @@ const {
   applyToJoin,
   getApplicants,
   acceptMember,
-  rejectApplicant
+  rejectApplicant,
+  getUserApplications
 } = require('../controllers/projectController');
 const {
   getProjectTasks,
@@ -24,6 +25,8 @@ router.get('/:id', getProjectDetail);
 
 // Protected routes (require user login)
 router.use(authMiddleware);
+
+router.get('/my-applications', getUserApplications);
 
 router.post('/', createProject);
 router.post('/:id/apply', applyToJoin);
