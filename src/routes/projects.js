@@ -21,12 +21,11 @@ const router = express.Router();
 
 // Discovery and detailed lookups are publicly viewable
 router.get('/', listProjects);
+router.get('/my-applications', authMiddleware, getUserApplications);
 router.get('/:id', getProjectDetail);
 
 // Protected routes (require user login)
 router.use(authMiddleware);
-
-router.get('/my-applications', getUserApplications);
 
 router.post('/', createProject);
 router.post('/:id/apply', applyToJoin);
