@@ -35,9 +35,70 @@ const generateProjectTasks = async (req, res, next) => {
       return res.status(404).json({ error: 'Project not found.' });
     }
 
-    console.log(`[AI SIMULATOR] Simulating task package for project: "${project.title}"`);
+    // Try generating tasks using the live Google Gemini API
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (apiKey) {
+      try {
+        console.log(`[AI ORCHESTRATION] Using Gemini API to generate tasks for project: "${project.title}"`);
+        
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{
+                text: `Generate a JSON list of tasks for a student team project with the title "${project.title}" and description "${project.description}", having technical domains: ${project.domainTags.join(', ')}. Return a JSON object with a single field 'tasks' containing an array of objects, where each object has:
+- 'title': (string, name of the task)
+- 'description': (string, brief task explanation)
+- 'category': (string, one of: design, frontend, backend, data, research, testing)
+- 'estimatedHours': (number, hours between 3 and 16)
+- 'priority': (string, one of: low, medium, high, critical)
+- 'status': (must be 'unassigned')
 
-    // Dynamic Task seed generation depending on project domains
+Make sure to generate between 5 to 8 relevant tasks that perfectly fit the project's title, description, and technical domains. Return valid JSON only matching the schema exactly.`
+              }]
+            }],
+            generationConfig: {
+              responseMimeType: "application/json"
+            }
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text) {
+            const parsed = JSON.parse(text);
+            if (parsed.tasks && Array.isArray(parsed.tasks)) {
+              const generatedTasks = parsed.tasks.map(t => ({
+                id: Math.random().toString(36).substring(2, 9),
+                title: t.title || 'Untitled Task',
+                description: t.description || '',
+                category: t.category || 'frontend',
+                estimatedHours: t.estimatedHours || 6,
+                priority: t.priority || 'medium',
+                status: 'unassigned'
+              }));
+              
+              return res.json({
+                message: 'AI Smart Task generation successfully processed via Google Gemini!',
+                tasks: generatedTasks
+              });
+            }
+          }
+        } else {
+          console.warn(`[AI ORCHESTRATION] Gemini API responded with status ${response.status}. Falling back to smart simulation.`);
+        }
+      } catch (geminiError) {
+        console.error('[AI ORCHESTRATION] Error invoking Gemini API:', geminiError);
+      }
+    }
+
+    console.log(`[AI SIMULATOR] Simulating task package fallback for project: "${project.title}"`);
+
+    // Dynamic Task seed generation depending on project domains (Fallback Mode)
     const domains = project.domainTags.map(d => d.toLowerCase());
     const generatedTasks = [];
 
@@ -132,7 +193,7 @@ const generateProjectTasks = async (req, res, next) => {
     });
 
     return res.json({
-      message: 'AI Smart Task simulation successfully generated!',
+      message: 'AI Smart Task simulation successfully generated (Fallback Mode)!',
       tasks: generatedTasks
     });
   } catch (error) {
