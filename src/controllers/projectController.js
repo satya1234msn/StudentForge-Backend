@@ -538,8 +538,10 @@ const getUserApplications = async (req, res, next) => {
         project: {
           include: {
             owner: {
-              select: { name: true, avatarUrl: true }
-            }
+              select: { id: true, name: true, avatarUrl: true }
+            },
+            members: true,
+            roles: true
           }
         }
       },
