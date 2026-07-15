@@ -37,19 +37,23 @@ const generateProjectTasks = async (req, res, next) => {
 
     // Try generating tasks using the live Google Gemini API
     const apiKey = process.env.GEMINI_API_KEY;
-    if (apiKey) {
-      try {
-        console.log(`[AI ORCHESTRATION] Using Gemini API to generate tasks for project: "${project.title}"`);
-        
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{
-                text: `Generate a JSON list of tasks for a student team project with the title "${project.title}" and description "${project.description}", having technical domains: ${project.domainTags.join(', ')}. Return a JSON object with a single field 'tasks' containing an array of objects, where each object has:
+    if (!apiKey) {
+      return res.status(500).json({
+        error: 'Gemini API configuration error: GEMINI_API_KEY is not defined in the environment variables.'
+      });
+    }
+
+    console.log(`[AI ORCHESTRATION] Using Gemini API to generate tasks for project: "${project.title}"`);
+    
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: `Generate a JSON list of tasks for a student team project with the title "${project.title}" and description "${project.description}", having technical domains: ${project.domainTags.join(', ')}. Return a JSON object with a single field 'tasks' containing an array of objects, where each object has:
 - 'title': (string, name of the task)
 - 'description': (string, brief task explanation)
 - 'category': (string, one of: design, frontend, backend, data, research, testing)
@@ -58,144 +62,56 @@ const generateProjectTasks = async (req, res, next) => {
 - 'status': (must be 'unassigned')
 
 Make sure to generate between 5 to 8 relevant tasks that perfectly fit the project's title, description, and technical domains. Return valid JSON only matching the schema exactly.`
-              }]
-            }],
-            generationConfig: {
-              responseMimeType: "application/json"
-            }
-          })
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text) {
-            const parsed = JSON.parse(text);
-            if (parsed.tasks && Array.isArray(parsed.tasks)) {
-              const generatedTasks = parsed.tasks.map(t => ({
-                id: Math.random().toString(36).substring(2, 9),
-                title: t.title || 'Untitled Task',
-                description: t.description || '',
-                category: t.category || 'frontend',
-                estimatedHours: t.estimatedHours || 6,
-                priority: t.priority || 'medium',
-                status: 'unassigned'
-              }));
-              
-              return res.json({
-                message: 'AI Smart Task generation successfully processed via Google Gemini!',
-                tasks: generatedTasks
-              });
-            }
-          }
-        } else {
-          console.warn(`[AI ORCHESTRATION] Gemini API responded with status ${response.status}. Falling back to smart simulation.`);
+          }]
+        }],
+        generationConfig: {
+          responseMimeType: "application/json"
         }
-      } catch (geminiError) {
-        console.error('[AI ORCHESTRATION] Error invoking Gemini API:', geminiError);
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[AI ORCHESTRATION] Gemini API responded with status ${response.status}: ${errorText}`);
+      return res.status(response.status).json({
+        error: `Gemini API call failed with status ${response.status}.`,
+        details: errorText
+      });
+    }
+
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) {
+      return res.status(502).json({ error: 'Gemini API returned an empty or invalid response.' });
+    }
+
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed.tasks && Array.isArray(parsed.tasks)) {
+        const generatedTasks = parsed.tasks.map(t => ({
+          id: Math.random().toString(36).substring(2, 9),
+          title: t.title || 'Untitled Task',
+          description: t.description || '',
+          category: t.category || 'frontend',
+          estimatedHours: t.estimatedHours || 6,
+          priority: t.priority || 'medium',
+          status: 'unassigned'
+        }));
+        
+        return res.json({
+          message: 'AI Smart Task generation successfully processed via Google Gemini!',
+          tasks: generatedTasks
+        });
+      } else {
+        return res.status(502).json({ error: 'Gemini API response did not match the expected task list schema.' });
       }
-    }
-
-    console.log(`[AI SIMULATOR] Simulating task package fallback for project: "${project.title}"`);
-
-    // Dynamic Task seed generation depending on project domains (Fallback Mode)
-    const domains = project.domainTags.map(d => d.toLowerCase());
-    const generatedTasks = [];
-
-    // Helper to generate IDs
-    const createMockId = () => Math.random().toString(36).substring(2, 9);
-
-    // 1. Initial design phase (always included)
-    generatedTasks.push({
-      id: createMockId(),
-      title: 'Design High-Fidelity UI Wireframes',
-      description: 'Design key responsive UI layout mockups, user flows, and colour palettes in Figma.',
-      category: 'design',
-      estimatedHours: 6,
-      priority: 'high',
-      status: 'unassigned'
-    });
-
-    // 2. Add domain-specific technical tasks
-    if (domains.includes('web dev') || domains.includes('mobile app')) {
-      generatedTasks.push({
-        id: createMockId(),
-        title: 'Initialize Frontend Boilerplate & Components',
-        description: 'Scaffold core React page layouts, global Zustand stores, and configure basic stylesheets.',
-        category: 'frontend',
-        estimatedHours: 10,
-        priority: 'high',
-        status: 'unassigned'
+    } catch (parseErr) {
+      console.error('[AI ORCHESTRATION] Failed to parse JSON from Gemini response:', text, parseErr);
+      return res.status(502).json({
+        error: 'Gemini API returned invalid JSON text.',
+        details: text
       });
     }
-
-    if (domains.includes('web dev') || domains.includes('blockchain') || domains.includes('ai/ml')) {
-      generatedTasks.push({
-        id: createMockId(),
-        title: 'Establish Express API Boilerplate & Routing',
-        description: 'Set up node.js server controllers, CORS permissions, express-json parsing, and base auth routing.',
-        category: 'backend',
-        estimatedHours: 8,
-        priority: 'high',
-        status: 'unassigned'
-      });
-      generatedTasks.push({
-        id: createMockId(),
-        title: 'Define Relational Schemas & Prisma Migrations',
-        description: 'Write models for users, projects, and tasks in schema.prisma and execute a database sync command.',
-        category: 'backend',
-        estimatedHours: 6,
-        priority: 'medium',
-        status: 'unassigned'
-      });
-    }
-
-    if (domains.includes('ai/ml') || domains.includes('data science') || domains.includes('research')) {
-      generatedTasks.push({
-        id: createMockId(),
-        title: 'Train Crop Diagnosis Model & Clean Dataset',
-        description: 'Train deep convolutional networks (CNNs) in Python/Tensorflow and format raw field data directories.',
-        category: 'data',
-        estimatedHours: 12,
-        priority: 'critical',
-        status: 'unassigned'
-      });
-      generatedTasks.push({
-        id: createMockId(),
-        title: 'Write Technical Crop blight Research Paper',
-        description: 'Draft LaTeX documents detailing ML model parameters, accuracy rates, and testing matrices.',
-        category: 'research',
-        estimatedHours: 10,
-        priority: 'low',
-        status: 'unassigned'
-      });
-    }
-
-    // 3. Testing and Integration (always included)
-    generatedTasks.push({
-      id: createMockId(),
-      title: 'Formulate Automated Integration Jest Tests',
-      description: 'Write Jest testing scripts to assert frontend client render results and backend controllers.',
-      category: 'testing',
-      estimatedHours: 5,
-      priority: 'medium',
-      status: 'unassigned'
-    });
-
-    generatedTasks.push({
-      id: createMockId(),
-      title: 'Integrate APIs & Connect Frontend Client',
-      description: 'Connect React forms with the backend server API, storing JWT access tokens safely in localStorage.',
-      category: 'frontend',
-      estimatedHours: 8,
-      priority: 'high',
-      status: 'unassigned'
-    });
-
-    return res.json({
-      message: 'AI Smart Task simulation successfully generated (Fallback Mode)!',
-      tasks: generatedTasks
-    });
   } catch (error) {
     next(error);
   }
