@@ -1,5 +1,4 @@
 const prisma = require('../utils/prisma');
-const { matchTasksToMembers } = require('../services/matchingService');
 
 // Get all tasks for a project
 const getProjectTasks = async (req, res, next) => {
@@ -117,7 +116,7 @@ Make sure to generate between 5 to 8 relevant tasks that perfectly fit the proje
   }
 };
 
-// Weighted matching and workload distribution engine trigger
+// Weighted matching and workload distribution engine trigger (via Google Gemini)
 const distributeProjectTasks = async (req, res, next) => {
   try {
     const { id: projectId } = req.params;
@@ -152,19 +151,97 @@ const distributeProjectTasks = async (req, res, next) => {
       return res.status(400).json({ error: 'There are no active members in this project to distribute tasks to.' });
     }
 
-    // Map database members array format to simple algorithm context
+    // Map database members array format to simple context
     const parsedMembers = members.map(m => ({
       id: m.user.id,
       name: m.user.name,
-      skills: m.user.skills,
-      bio: m.user.bio,
-      availabilityHours: m.user.availabilityHours,
-      reliabilityScore: m.user.reliabilityScore
+      skills: m.user.skills.map(s => ({
+        skillName: s.skillName,
+        category: s.category,
+        level: s.level
+      })),
+      bio: m.user.bio || '',
+      availabilityHours: m.user.availabilityHours || 10,
+      reliabilityScore: m.user.reliabilityScore || 5.0
     }));
 
-    // Run the matching algorithm
-    const matchResults = matchTasksToMembers(tasks, parsedMembers);
-    const { assignments, memberLoads, matchLogs } = matchResults;
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({
+        error: 'Gemini API configuration error: GEMINI_API_KEY is not defined in the environment variables.'
+      });
+    }
+
+    console.log(`[AI MATCHING] Invoking Gemini to distribute ${tasks.length} tasks across ${parsedMembers.length} members for project "${project.title}"`);
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: `You are an AI workload balancer and smart task matching engine for student projects. You need to assign the following list of tasks to the project's active team members fairly and intelligently.
+
+Tasks to assign:
+${JSON.stringify(tasks, null, 2)}
+
+Active Team Members:
+${JSON.stringify(parsedMembers, null, 2)}
+
+Please distribute these tasks among the team members based on the following guidelines:
+1. Match tasks to members based on their skills (categories and names) and bio.
+2. Balance the workload so that the total estimated hours assigned to a member is proportional to their availabilityHours, and does not exceed their capacity.
+3. Distribute tasks so that all members are involved (no single-member concentration unless there is only one member).
+4. For each member, designate at least one task that stretches their skill stack as a learning goal (set 'isLearningTask' to true).
+5. Explain the reasoning behind your assignments.
+
+Return a JSON object with the following fields:
+- 'assignments': (object, mapping each member's id to an array of tasks assigned to them. Each task object in the array must contain 'title', 'description', 'category', 'priority', 'estimatedHours', and a boolean 'isLearningTask')
+- 'memberLoads': (object, mapping each member's id to their total estimated hours as a number)
+- 'matchLogs': (array of objects, where each object has 'taskTitle', 'assignedTo' (member name), and 'rationale' (string explanation of why they were matched))
+
+Ensure the output is valid JSON matching this schema exactly.`
+          }]
+        }],
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[AI MATCHING] Gemini API responded with status ${response.status}: ${errorText}`);
+      return res.status(response.status).json({
+        error: `Gemini API call failed with status ${response.status}.`,
+        details: errorText
+      });
+    }
+
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) {
+      return res.status(502).json({ error: 'Gemini API returned an empty or invalid response.' });
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (parseErr) {
+      console.error('[AI MATCHING] Failed to parse JSON from Gemini response:', text, parseErr);
+      return res.status(502).json({
+        error: 'Gemini API returned invalid JSON text.',
+        details: text
+      });
+    }
+
+    const { assignments, memberLoads, matchLogs } = parsed;
+
+    if (!assignments || typeof assignments !== 'object' || !memberLoads || typeof memberLoads !== 'object') {
+      return res.status(502).json({ error: 'Gemini API response did not match the expected task matching schema.' });
+    }
 
     // Database transaction to save tasks and activate project status
     await prisma.$transaction(async (tx) => {
@@ -173,6 +250,7 @@ const distributeProjectTasks = async (req, res, next) => {
 
       // 2. Insert and save all assigned tasks
       for (const [memberId, memberTasks] of Object.entries(assignments)) {
+        if (!Array.isArray(memberTasks)) continue;
         for (const task of memberTasks) {
           await tx.task.create({
             data: {
@@ -224,9 +302,9 @@ const distributeProjectTasks = async (req, res, next) => {
     });
 
     return res.json({
-      message: 'Tasks successfully distributed and locked!',
+      message: 'Tasks successfully distributed and locked via Gemini AI!',
       memberLoads,
-      matchLogs
+      matchLogs: matchLogs || []
     });
   } catch (error) {
     next(error);
