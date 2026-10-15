@@ -44,7 +44,7 @@ const generateProjectTasks = async (req, res, next) => {
 
     console.log(`[AI ORCHESTRATION] Using Gemini API to generate tasks for project: "${project.title}"`);
     
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -174,7 +174,7 @@ const distributeProjectTasks = async (req, res, next) => {
 
     console.log(`[AI MATCHING] Invoking Gemini to distribute ${tasks.length} tasks across ${parsedMembers.length} members for project "${project.title}"`);
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -292,7 +292,7 @@ Ensure the output is valid JSON matching this schema exactly.`
     const connectedUsers = req.app.get('connectedUsers');
 
     members.forEach(m => {
-      const socketId = connectedUsers.get(m.user.id);
+      const socketId = connectedUsers ? connectedUsers.get(m.user.id) : null;
       if (io && socketId) {
         io.to(socketId).emit('notification', {
           title: 'Tasks Distributed!',
@@ -353,7 +353,7 @@ const updateTaskStatus = async (req, res, next) => {
 
       const io = req.app.get('io');
       const connectedUsers = req.app.get('connectedUsers');
-      const ownerSocketId = connectedUsers.get(task.project.ownerId);
+      const ownerSocketId = connectedUsers ? connectedUsers.get(task.project.ownerId) : null;
       if (io && ownerSocketId) {
         io.to(ownerSocketId).emit('notification', {
           title: 'Task Review Alert',

@@ -275,7 +275,7 @@ const applyToJoin = async (req, res, next) => {
         // Emit live socket event if socket connected
         const io = req.app.get('io');
         const connectedUsers = req.app.get('connectedUsers');
-        const ownerSocketId = connectedUsers.get(project.ownerId);
+        const ownerSocketId = connectedUsers ? connectedUsers.get(project.ownerId) : null;
         if (io && ownerSocketId) {
           io.to(ownerSocketId).emit('notification', {
             title: 'New Project Application',
@@ -315,7 +315,7 @@ const applyToJoin = async (req, res, next) => {
     // Emit live socket event if socket connected
     const io = req.app.get('io');
     const connectedUsers = req.app.get('connectedUsers');
-    const ownerSocketId = connectedUsers.get(project.ownerId);
+    const ownerSocketId = connectedUsers ? connectedUsers.get(project.ownerId) : null;
     if (io && ownerSocketId) {
       io.to(ownerSocketId).emit('notification', {
         title: 'New Project Application',
@@ -445,7 +445,7 @@ const acceptMember = async (req, res, next) => {
     // Emit live socket alert
     const io = req.app.get('io');
     const connectedUsers = req.app.get('connectedUsers');
-    const applicantSocketId = connectedUsers.get(userId);
+    const applicantSocketId = connectedUsers ? connectedUsers.get(userId) : null;
     if (io && applicantSocketId) {
       io.to(applicantSocketId).emit('notification', {
         title: 'Application Accepted!',
@@ -513,7 +513,7 @@ const rejectApplicant = async (req, res, next) => {
     // Emit live socket alert
     const io = req.app.get('io');
     const connectedUsers = req.app.get('connectedUsers');
-    const applicantSocketId = connectedUsers.get(userId);
+    const applicantSocketId = connectedUsers ? connectedUsers.get(userId) : null;
     if (io && applicantSocketId) {
       io.to(applicantSocketId).emit('notification', {
         title: 'Application Update',
